@@ -1,0 +1,14 @@
+{
+  "name": "linuxgame/php-tests",
+  "description": "PHP tests for Linux Console the Game",
+  "require": {
+    "php": ">=7.4",
+    "phpunit/phpunit": "^9.6"
+  },
+  "autoload": {
+    "classmap": ["api/"]
+  },
+  "autoload-dev": {
+    "classmap": ["tests/"]
+  }
+}

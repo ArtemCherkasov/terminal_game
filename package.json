@@ -1,0 +1,13 @@
+{
+  "name": "linux-console-the-game",
+  "version": "1.0.0",
+  "description": "Browser-based Linux terminal simulator",
+  "scripts": {
+    "test": "jest --coverage",
+    "test:watch": "jest --watch"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0"
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "/": {
+    "type": "dir",
+    "permissions": "755",
+    "owner": "root",
+    "children": {
+      "bin": {
+        "type": "dir",
+        "permissions": "755",
+        "owner": "root",
+        "children": {}
+      },
+      "home": {
+        "type": "dir",
+        "permissions": "755",
+        "owner": "root",
+        "children": {
+          "user": {
+            "type": "dir",
+            "permissions": "755",
+            "owner": "user",
+            "children": {
+              "documents": {
+                "type": "dir",
+                "permissions": "755",
+                "owner": "user",
+                "children": {
+                  "readme.txt": {
+                    "type": "file",
+                    "permissions": "644",
+                    "owner": "user",
+                    "content": "Добро пожаловать в Linux the Game!\n"
+                  }
+                }
+              },
+              "hello.sh": {
+                "type": "file",
+                "permissions": "755",
+                "owner": "user",
+                "content": "#!/bin/bash\necho \"Hello, World!\"\n"
+              }
+            }
+          }
+        }
+      },
+      "tmp": {
+        "type": "dir",
+        "permissions": "777",
+        "owner": "root",
+        "children": {}
+      }
+    }
+  }
+}

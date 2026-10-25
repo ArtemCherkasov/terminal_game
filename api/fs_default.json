@@ -1,0 +1,160 @@
+{
+    "/": {
+        "type": "dir",
+        "permissions": "755",
+        "owner": "root",
+        "children": {
+            "bin": {
+                "type": "dir",
+                "permissions": "755",
+                "owner": "root",
+                "children": []
+            },
+            "etc": {
+                "type": "dir",
+                "permissions": "755",
+                "owner": "root",
+                "children": {
+                    "hostname": {
+                        "type": "file",
+                        "permissions": "644",
+                        "owner": "root",
+                        "content": "linux-game\n"
+                    },
+                    "passwd": {
+                        "type": "file",
+                        "permissions": "644",
+                        "owner": "root",
+                        "content": "root:x:0:0:root:/root:/bin/bash\nuser:x:1000:1000:User:/home/user:/bin/bash\n"
+                    },
+                    "os-release": {
+                        "type": "file",
+                        "permissions": "644",
+                        "owner": "root",
+                        "content": "NAME=\"Linux the Game\"\nVERSION=\"1.0\"\nID=linuxgame\nPRETTY_NAME=\"Linux the Game 1.0\"\n"
+                    }
+                }
+            },
+            "home": {
+                "type": "dir",
+                "permissions": "755",
+                "owner": "root",
+                "children": {
+                    "user": {
+                        "type": "dir",
+                        "permissions": "755",
+                        "owner": "user",
+                        "children": {
+                            "documents": {
+                                "type": "dir",
+                                "permissions": "755",
+                                "owner": "user",
+                                "children": {
+                                    "readme.txt": {
+                                        "type": "file",
+                                        "permissions": "644",
+                                        "owner": "user",
+                                        "content": "Добро пожаловать в Linux the Game!\nЭто симулятор терминала Linux.\n\nКоманды для начала:\n  ls - список файлов\n  cat readme.txt - прочитать файл\n  pwd - показать текущий каталог\n  cd documents - перейти в каталог\n  man <команда> - справка\n"
+                                    },
+                                    "notes.md": {
+                                        "type": "file",
+                                        "permissions": "644",
+                                        "owner": "user",
+                                        "content": "# Заметки\n\n- Изучить Linux\n- Практиковать команды\n- Пройти все man-страницы\n"
+                                    }
+                                }
+                            },
+                            "downloads": {
+                                "type": "dir",
+                                "permissions": "755",
+                                "owner": "user",
+                                "children": []
+                            },
+                            "pictures": {
+                                "type": "dir",
+                                "permissions": "755",
+                                "owner": "user",
+                                "children": []
+                            },
+                            "music": {
+                                "type": "dir",
+                                "permissions": "755",
+                                "owner": "user",
+                                "children": []
+                            },
+                            ".bashrc": {
+                                "type": "file",
+                                "permissions": "644",
+                                "owner": "user",
+                                "content": "# ~/.bashrc\nexport PATH=/usr/local/bin:$PATH\nalias ll=\"ls -la\"\nalias ..=\"cd ..\"\n"
+                            },
+                            ".profile": {
+                                "type": "file",
+                                "permissions": "644",
+                                "owner": "user",
+                                "content": "# ~/.profile\nexport LANG=ru_RU.UTF-8\n"
+                            },
+                            "hello.sh": {
+                                "type": "file",
+                                "permissions": "755",
+                                "owner": "user",
+                                "content": "#!/bin/bash\necho \"Hello, World!\"\n"
+                            },
+                            "index.html": {
+                                "type": "file",
+                                "permissions": "644",
+                                "owner": "user",
+                                "content": "<!DOCTYPE html>\n<html>\n<head><title>My Page</title></head>\n<body><h1>Hello!</h1></body>\n</html>\n"
+                            }
+                        }
+                    }
+                }
+            },
+            "var": {
+                "type": "dir",
+                "permissions": "755",
+                "owner": "root",
+                "children": {
+                    "log": {
+                        "type": "dir",
+                        "permissions": "755",
+                        "owner": "root",
+                        "children": {
+                            "syslog": {
+                                "type": "file",
+                                "permissions": "644",
+                                "owner": "root",
+                                "content": "[INFO] System started\n[INFO] Network configured\n[INFO] Services started\n"
+                            }
+                        }
+                    }
+                }
+            },
+            "tmp": {
+                "type": "dir",
+                "permissions": "777",
+                "owner": "root",
+                "children": []
+            },
+            "usr": {
+                "type": "dir",
+                "permissions": "755",
+                "owner": "root",
+                "children": {
+                    "bin": {
+                        "type": "dir",
+                        "permissions": "755",
+                        "owner": "root",
+                        "children": []
+                    },
+                    "local": {
+                        "type": "dir",
+                        "permissions": "755",
+                        "owner": "root",
+                        "children": []
+                    }
+                }
+            }
+        }
+    }
+}
