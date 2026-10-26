@@ -1,8 +1,18 @@
-﻿/**
+/**
  * Linux the Game — jQuery Terminal
  * Эмуляция Linux-терминала с CRT-стилистикой
  */
 $(function() {
+    // Wait for CommandRegistry to be ready (async loading in index.js)
+    function initWhenReady() {
+        if (typeof window.CommandRegistry !== 'undefined') {
+            initTerminal();
+        } else {
+            setTimeout(initWhenReady, 50);
+        }
+    }
+
+    function initTerminal() {
     const terminal = $('#terminal');
     const prompt = $('#prompt');
     const input = $('#input');
@@ -31,24 +41,28 @@ $(function() {
     let suggestionsVisible = false;
     let suggestionIndex = -1;
     let currentLang = localStorage.getItem('lang') || 'ru';
-    let currentPath = '/home/user'; // Текущая директория пользователя (абсолютный путь от /)
+    let currentPath = '/home/user';
     let currentUser = 'user';
     let currentHost = 'linux-game';
     let fs = {};
-    let defaultFs = null; // Эталонная ФС с сервера
+    let defaultFs = null;
+    let currentUserData = null;
+    let authState = 'idle';
+    let authLogin = '';
+    let authEmail = '';
+    let authPass1 = '';
+    let authPass2 = '';
     // Позиционирование курсора через зеркальный span
     function updateCursorPosition() {
         const val = input.val();
         const selStart = input[0].selectionStart || val.length;
         mirror.text(val.substring(0, selStart));
-        // requestAnimationFrame — курсор позиционируется после рендеринга
         requestAnimationFrame(function() {
             const mirrorWidth = mirror[0].offsetWidth;
             cursor.css('left', mirrorWidth + 'px');
         });
     }
     // ========== Виртуальная файловая система ==========
-    // Загрузка рабочей ФС из localStorage или сервера
     (function() {
         const cached = localStorage.getItem('fs_state');
         if (cached) {
@@ -59,7 +73,6 @@ $(function() {
             }
         }
         if (!fs['/']) {
-            // Загружаем с сервера синхронно
             $.ajax({
                 url: '/api/fs.php',
                 dataType: 'json',
@@ -71,7 +84,6 @@ $(function() {
             });
         }
     })();
-    // Загрузка эталонной ФС с сервера (отдельно от рабочей)
     (function() {
         $.ajax({
             url: '/api/fs.php?action=default',
@@ -82,15 +94,54 @@ $(function() {
             }
         });
     })();
-    // Сохранение рабочей ФС в localStorage
+    function loadUserFilesystem(userId) {
+        $.ajax({
+            url: '/api/auth.php?action=get_fs',
+            data: { user_id: userId },
+            dataType: 'json',
+            async: false,
+            success: function(data) {
+                if (data && !data.status) {
+                    fs = data;
+                    localStorage.setItem('fs_state', JSON.stringify(fs));
+                }
+            },
+            error: function() {
+                fs = JSON.parse(JSON.stringify(defaultFs));
+            }
+        });
+    }
     function saveFS() {
         localStorage.setItem('fs_state', JSON.stringify(fs));
+        if (currentUserData) {
+            $.ajax({
+                url: '/api/auth.php?action=save_fs',
+                type: 'POST',
+                data: { user_id: currentUserData.id },
+                contentType: 'application/json',
+                dataType: 'json',
+                data: JSON.stringify({ fs: fs }),
+                success: function() {},
+                error: function() {}
+            });
+        }
     }
-    // Восстановление рабочей ФС из эталонной на сервере
     function resetFS() {
         if (defaultFs) {
             fs = JSON.parse(JSON.stringify(defaultFs));
             localStorage.setItem('fs_state', JSON.stringify(fs));
+            if (currentUserData) {
+                $.ajax({
+                    url: '/api/auth.php?action=save_fs',
+                    type: 'POST',
+                    data: { user_id: currentUserData.id },
+                    contentType: 'application/json',
+                    dataType: 'json',
+                    data: JSON.stringify({ fs: fs }),
+                    success: function() {},
+                    error: function() {}
+                });
+            }
             return true;
         }
         return false;
@@ -107,6 +158,9 @@ $(function() {
         }
         if (path.startsWith('~/')) path = '/home/user/' + path.slice(2);
         if (!path.startsWith('/')) path = currentPath + '/' + path;
+        // Убрать trailing slash
+        path = path.replace(/\/+$/, '');
+        if (!path) return fs['/'];
         const parts = path.split('/').filter(Boolean);
         let current = fs['/'];
         for (const part of parts) {
@@ -116,7 +170,6 @@ $(function() {
         return current;
     }
     function resolveParentPath(path) {
-        // If relative path, resolve from currentPath first
         let resolvedPath = path;
         if (!path.startsWith('/')) {
             resolvedPath = currentPath + '/' + path;
@@ -126,7 +179,6 @@ $(function() {
         const parentPath = '/' + parts.join('/') || '/';
         return { parent: resolvePath(parentPath), filename, parentPath };
     }
-    // Экранирование HTML для предотвращения XSS
     function escapeHtml(str) {
         return $('<span>').text(str).html();
     }
@@ -146,7 +198,8 @@ $(function() {
             manError: 'Ошибка загрузки man-страницы',
             loadError: 'Ошибка загрузки списка команд',
             exitHint: 'Выход невозможен — это симулятор.',
-            gameinfoTitle: '═══ Linux the Game — Информация ═══'
+            gameinfoTitle: '═══ Linux the Game — Информация ═══',
+            welcomeUser: 'Добро пожаловать'
         },
         en: {
             welcome: '~ Welcome to Linux the Game ~',
@@ -162,10 +215,10 @@ $(function() {
             manError: 'Error loading man page',
             loadError: 'Error loading command list',
             exitHint: 'Exit not possible — this is a simulator.',
-            gameinfoTitle: '═══ Linux the Game — Info ═══'
+            gameinfoTitle: '═══ Linux the Game — Info ═══',
+            welcomeUser: 'Welcome'
         }
     };
-    // ========== Переключатель языка ==========
     function setLanguage(lang) {
         currentLang = lang;
         localStorage.setItem('lang', lang);
@@ -176,7 +229,6 @@ $(function() {
     function loadCommands() {
         commandsCache = [];
         $.getJSON('/api/commands.php?lang=' + currentLang, function(data) {
-            // Deduplicate by command name
             const seen = new Set();
             commandsCache = data.filter(function(cmd) {
                 if (seen.has(cmd.name)) return false;
@@ -187,7 +239,6 @@ $(function() {
             appendOutput('<span class="error">' + i18n[currentLang].loadError + '</span>');
         });
     }
-    // Показать окно gameinfo
     function showGameInfo() {
         const overlay = $('#gameinfo-overlay');
         const text = $('#gameinfo-text');
@@ -236,23 +287,19 @@ $(function() {
         overlay.addClass('active');
         input.blur();
     }
-    // Скрыть окно gameinfo
     function hideGameInfo() {
         $('#gameinfo-overlay').removeClass('active');
         input.focus();
     }
-    // Обработчик ESC для закрытия gameinfo
     $(document).on('keydown', function(e) {
         if (e.key === 'Escape') {
             hideGameInfo();
         }
     });
-    // Перерисовать man-страницу из кэша
     function renderManFromCache(cmdName) {
         const key = cmdName + '_' + currentLang;
         if (manCache[key]) {
             appendOutput('<pre class="manpage">' + manCache[key] + '</pre>');
-            // Добавляем вывод к последней записи в истории (команда man)
             if (history.length > 0) {
                 history[history.length - 1].output = pendingOutput.slice();
                 localStorage.setItem('history', JSON.stringify(history));
@@ -261,11 +308,9 @@ $(function() {
         }
         return false;
     }
-    // Перерисовать весь output с переводом
     function rerenderOutput(lang) {
         const gameinfoOpen = $('#gameinfo-overlay').hasClass('active');
         output.empty();
-        // Не добавляем в pendingOutput при перерисовке
         const welcomeLine = $('<div class="line"></div>');
         welcomeLine.append('<span class="info">~ ' + i18n[lang].welcome + ' ~</span>');
         output.append(welcomeLine);
@@ -274,7 +319,6 @@ $(function() {
         output.append(hintLine);
         history.forEach(function(entry) {
             const entryOutput = entry.output;
-            // entry.output уже содержит строку команды с $ — не добавляем повторно
             if (entryOutput && entryOutput.length > 0) {
                 entryOutput.forEach(function(line) {
                     const lineDiv = $('<div class="line"></div>');
@@ -282,16 +326,13 @@ $(function() {
                     output.append(lineDiv);
                 });
             } else {
-                // Пустой output (man) — добавляем строку команды вручную
                 const cmdLine = $('<div class="line"></div>');
                 cmdLine.append('<span class="prompt">$ </span>' + escapeHtml(entry.command));
                 output.append(cmdLine);
             }
         });
-        // Обновляем состояние gameinfo если нужно
         if (gameinfoOpen) showGameInfo();
     }
-    // Обновить заголовок и футер gameinfo
     function updateGameInfoHeaderFooter(lang) {
         if ($('#gameinfo-overlay').hasClass('active')) {
             if (lang === 'ru') {
@@ -307,29 +348,21 @@ $(function() {
         const lang = $(this).data('lang');
         setLanguage(lang);
         commandsCache = [];
-        // Перезагружаем команды для нового языка
         $.getJSON('/api/commands.php?lang=' + lang, function(data) {
             commandsCache = data;
-            // Перерисовываем весь output на новом языке
             rerenderOutput(lang);
             updateGameInfoHeaderFooter(lang);
         }).fail(function() {
             appendOutput('<span class="error">' + i18n[lang].loadError + '</span>');
         });
     });
-    // Инициализация языка
     setLanguage(currentLang);
-    // Фокус на терминал
     terminal.on('click', function() {
         input.focus();
     });
-    // Автофокус при загрузке
     input.focus();
-    // Инициализация позиции курсора
     updateCursorPosition();
-    // Загружаем список команд
     loadCommands();
-    // Очистка терминала
     function clearTerminal() {
         output.empty();
         history = [];
@@ -341,443 +374,123 @@ $(function() {
         hintLine.append('<span class="info">' + i18n[currentLang].helpHint + '</span>');
         output.append(hintLine);
     }
-    // Добавление строки вывода
+    function updatePrompt() {
+        if (currentUser === 'user') {
+            prompt.text('$');
+        } else {
+            var displayPath = currentPath.startsWith('/') ? currentPath.slice(1) : currentPath;
+            prompt.text(currentUser + '@' + currentHost + ':' + displayPath + '$');
+        }
+    }
+
     function appendOutput(text) {
         const line = $('<div class="line"></div>');
         line.append(text);
         output.append(line);
         terminal.scrollTop(terminal[0].scrollHeight);
-        // Сохраняем HTML-строку для истории
         pendingOutput.push(line.html());
     }
     // Выполнение команды
     function executeCommand(cmd) {
         const trimmed = cmd.trim();
         if (!trimmed) return;
-        // Очищаем pendingOutput перед выполнением команды
+
+        // Create context for commands
+        var ctx = {
+            _cmd: trimmed,
+            appendOutput: appendOutput,
+            saveToHistory: saveToHistory,
+            escapeHtml: escapeHtml,
+            resolvePath: resolvePath,
+            resolveParentPath: resolveParentPath,
+            saveFS: saveFS,
+            clearTerminal: clearTerminal,
+            findPathForDir: findPathForDir,
+            resetFS: resetFS,
+            showGameInfo: showGameInfo,
+            showHelp: showHelp,
+            renderManFromCache: renderManFromCache,
+            fetchMan: fetchMan,
+            loadUserFilesystem: loadUserFilesystem,
+            currentPath: currentPath,
+            setCurrentPath: function(p) {
+                var normalized = (p || '').replace(/^\/+|\/+$/g, '');
+                currentPath = normalized === '' ? '/' : '/' + normalized;
+            },
+            currentUser: currentUser,
+            setCurrentUser: function(u) { currentUser = u; },
+            currentHost: currentHost,
+            setCurrentHost: function(h) { currentHost = h; },
+            currentLang: currentLang,
+            i18n: i18n,
+            fs: fs,
+            setFs: function(f) { fs = f; },
+            defaultFs: defaultFs,
+            currentUserData: currentUserData,
+            setUserData: function(d) { currentUserData = d; },
+            history: history,
+            authState: authState,
+            getAuthState: function() { return authState; },
+            setAuthState: function(s) { authState = s; },
+            authLogin: authLogin,
+            getAuthLogin: function() { return authLogin; },
+            setAuthLogin: function(v) { authLogin = v; },
+            authEmail: authEmail,
+            getAuthEmail: function() { return authEmail; },
+            setAuthEmail: function(v) { authEmail = v; },
+            authPass1: authPass1,
+            getAuthPass1: function() { return authPass1; },
+            setAuthPass1: function(v) { authPass1 = v; },
+            authPass2: authPass2,
+            getAuthPass2: function() { return authPass2; },
+            setAuthPass2: function(v) { authPass2 = v; },
+            updatePrompt: updatePrompt,
+            _registerUser: function(login, email, pass1, pass2) {
+                if (typeof window.CmdUseradd !== 'undefined' && typeof window.CmdUseradd._registerUser === 'function') {
+                    window.CmdUseradd._registerUser(ctx, login, email, pass1, pass2);
+                }
+            }
+        };
+
+        // Handle useradd/adduser state machine
+        var useraddHandler = (window.CmdUseradd && window.CmdUseradd.handleState) || (window.CmdAdduser && window.CmdAdduser.handleState);
+        if (useraddHandler && (authState === 'register_email' || authState === 'register_pass1' || authState === 'register_pass2' || authState === 'register_wait')) {
+            useraddHandler(ctx);
+            return;
+        }
+
+        // Handle login state machine
+        if (authState === 'waiting_for_username' || authState === 'waiting_for_password') {
+            if (typeof window.CmdLogin !== 'undefined' && typeof window.CmdLogin.execute === 'function') {
+                window.CmdLogin.execute(ctx);
+                return;
+            }
+        }
+
+        // Clear pending output before command execution
         pendingOutput = [];
-        // Добавляем команду в вывод
+        // Add command to output
         appendOutput('<span class="prompt">$ </span>' + escapeHtml(trimmed));
-        // Обработка специальных команд
-        if (trimmed === 'clear') {
-            clearTerminal();
+
+        // Execute command through registry
+        var cmdName = trimmed.split(' ')[0].toLowerCase();
+        if (CommandRegistry[cmdName]) {
+            CommandRegistry[cmdName].execute(ctx);
             return;
+        } else {
+            appendOutput('<span class="error">bash: ' + escapeHtml(cmdName) + ': ' + i18n[currentLang].unknownCmd + '</span>');
+            appendOutput('<span class="info">' + i18n[currentLang].helpAvailable + '</span>');
         }
-        if (trimmed === 'help' || trimmed === 'commands') {
-            showHelp();
-            saveToHistory(trimmed);
-            return;
-        }
-        if (trimmed === 'exit') {
-            appendOutput('<span class="warn">' + i18n[currentLang].exitMsg + '</span>');
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда gameinfo
-        if (trimmed === 'gameinfo') {
-            showGameInfo();
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда backupfs — восстановление эталонной ФС
-        if (trimmed === 'backupfs') {
-            if (resetFS()) {
-                appendOutput('<span class="info">Filesystem restored to backup state.</span>');
-            } else {
-                appendOutput('<span class="error">backupfs: No backup available.</span>');
-            }
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда cd
-        const cdMatch = trimmed.match(/^cd(\s+(.*))?$/);
-        if (cdMatch) {
-            const target = cdMatch[2] || '~';
-            const dir = resolvePath(target);
-            if (!dir) {
-                appendOutput('<span class="error">bash: cd: ' + escapeHtml(target) + ': No such file or directory</span>');
-            } else if (dir.type !== 'dir') {
-                appendOutput('<span class="error">bash: cd: ' + escapeHtml(target) + ': Not a directory</span>');
-            } else {
-                // Находим путь для директории и обновляем currentPath
-                const newPath = findPathForDir(dir);
-                if (newPath) currentPath = newPath;
-            }
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда pwd
-        if (trimmed === 'pwd') {
-            appendOutput(currentPath);
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда ls
-        const lsMatch = trimmed.match(/^(ls)(\s+([a-zA-Z-]*))?\s*(.*)?$/);
-        if (lsMatch) {
-            const target = lsMatch[4] || currentPath;
-            const dir = resolvePath(target);
-            if (!dir) {
-                appendOutput('<span class="error">ls: cannot access ' + escapeHtml(target) + '\': No such file or directory</span>');
-                saveToHistory(trimmed);
-                return;
-            } else if (dir.type !== 'dir') {
-                appendOutput(escapeHtml(target));
-            } else {
-                const items = Object.keys(dir.children).map(name => {
-                    const item = dir.children[name];
-                    const isDir = item.type === 'dir';
-                    const prefix = isDir ? '\x1b[34m' : (name.startsWith('.') ? '\x1b[37m' : '');
-                    const suffix = isDir ? '/' : '';
-                    return { name: name + suffix, isDir, item };
-                });
-                const showAll = lsMatch[3] && lsMatch[3].includes('a');
-                const longFormat = lsMatch[3] && lsMatch[3].includes('l');
-                const filtered = showAll ? items : items.filter(i => !i.name.startsWith('.'));
-                if (longFormat) {
-                    filtered.forEach(item => {
-                        const perm = item.item.permissions;
-                        const owner = item.item.owner;
-                        const size = item.item.type === 'file' ? (item.item.content || '').length : 4096;
-                        const typeChar = item.isDir ? 'd' : '-';
-                        const permStr = typeChar + perm.slice(1).replace(/7/g, 'rwx').replace(/6/g, 'rw-').replace(/5/g, 'r-x').replace(/4/g, 'r--').replace(/0/g, '---');
-                        appendOutput(permStr + ' ' + owner + ' ' + String(size).padStart(8) + ' ' + escapeHtml(item.name));
-                    });
-                } else {
-                    const line = filtered.map(i => escapeHtml(i.name)).join('  ');
-                    appendOutput(line || '');
-                }
-            }
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда cat
-        const catMatch = trimmed.match(/^cat\s+(.+)$/);
-        if (catMatch) {
-            const args = catMatch[1];
-            // Проверяем перенаправление: cat > file или cat >> file
-            const redirectMatch = args.match(/^(.+)\s*>>\s*(.+)$/);
-            const appendMatch = args.match(/^(.+)\s*>\s*(.+)$/);
-            if (redirectMatch) {
-                // append: cat >> file
-                const content = redirectMatch[1];
-                const filename = redirectMatch[2].trim();
-                const parent = resolveParentPath(filename);
-                if (!parent.parent) {
-                    appendOutput('<span class="error">cat: ' + filename + ': No such file or directory</span>');
-                } else {
-                    const existing = parent.parent.children[parent.filename];
-                    if (existing && existing.type === 'dir') {
-                        appendOutput('<span class="error">cat: ' + filename + ': Is a directory</span>');
-                    } else {
-                        parent.parent.children[parent.filename] = {
-                            type: 'file',
-                            permissions: '644',
-                            owner: currentUser,
-                            content: (existing ? existing.content : '') + content + '\n'
-                        };
-                    }
-                }
-                saveFS();
-            } else if (appendMatch) {
-                // overwrite: cat > file
-                const content = appendMatch[1];
-                const filename = appendMatch[2].trim();
-                const parent = resolveParentPath(filename);
-                if (!parent.parent) {
-                    appendOutput('<span class="error">cat: ' + filename + ': No such file or directory</span>');
-                } else {
-                    const existing = parent.parent.children[parent.filename];
-                    if (existing && existing.type === 'dir') {
-                        appendOutput('<span class="error">cat: ' + filename + ': Is a directory</span>');
-                    } else {
-                        parent.parent.children[parent.filename] = {
-                            type: 'file',
-                            permissions: '644',
-                            owner: currentUser,
-                            content: content + '\n'
-                        };
-                    }
-                }
-                saveFS();
-            } else {
-                // Обычный cat - вывод содержимого
-                const files = args.split(/\s+/);
-                for (const file of files) {
-                    const f = resolvePath(file);
-                    if (!f) {
-                        appendOutput('<span class="error">cat: ' + escapeHtml(file) + ': No such file or directory</span>');
-                    } else if (f.type === 'dir') {
-                        appendOutput('<span class="error">cat: ' + escapeHtml(file) + ': Is a directory</span>');
-                    } else {
-                        appendOutput(escapeHtml(f.content || ''));
-                    }
-                }
-            }
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда mkdir
-        const mkdirMatch = trimmed.match(/^mkdir\s+(-p\s+)?(.+)$/);
-        if (mkdirMatch) {
-            const createParents = mkdirMatch[1];
-            const name = mkdirMatch[2];
-            const parent = resolveParentPath(name);
-            if (!parent.parent) {
-                appendOutput('<span class="error">mkdir: cannot create directory ' + escapeHtml(name) + '\': No such file or directory</span>');
-                saveToHistory(trimmed);
-                return;
-            } else if (parent.parent.children[parent.filename]) {
-                appendOutput('<span class="error">mkdir: cannot create directory ' + escapeHtml(name) + '\': File exists</span>');
-                saveToHistory(trimmed);
-                return;
-            } else {
-                if (createParents) {
-                    const parts = name.split('/').filter(Boolean);
-                    let current = parent.parent;
-                    for (const part of parts) {
-                        if (!current.children[part]) {
-                            current.children[part] = { type: 'dir', permissions: '755', owner: currentUser, children: {} };
-                        }
-                        current = current.children[part];
-                    }
-                } else {
-                    parent.parent.children[parent.filename] = { type: 'dir', permissions: '755', owner: currentUser, children: {} };
-                }
-            }
-            saveFS();
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда touch
-        const touchMatch = trimmed.match(/^touch\s+(.+)$/);
-        if (touchMatch) {
-            const name = touchMatch[1];
-            const parent = resolveParentPath(name);
-            if (!parent.parent) {
-                appendOutput('<span class="error">touch: cannot touch ' + escapeHtml(name) + '\': No such file or directory</span>');
-                saveToHistory(trimmed);
-                return;
-            } else {
-                parent.parent.children[parent.filename] = parent.parent.children[parent.filename] || { type: 'file', permissions: '644', owner: currentUser, content: '' };
-            }
-            saveFS();
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда rm
-        const rmMatch = trimmed.match(/^rm\s+(-r\s+)?(.+)$/);
-        if (rmMatch) {
-            const recursive = rmMatch[1];
-            const name = rmMatch[2];
-            const target = resolvePath(name);
-            if (!target) {
-                appendOutput('<span class="error">rm: cannot remove ' + escapeHtml(name) + '\': No such file or directory</span>');
-                saveToHistory(trimmed);
-                return;
-            } else if (target.type === 'dir' && !recursive) {
-                appendOutput('<span class="error">rm: cannot remove ' + escapeHtml(name) + '\': Is a directory</span>');
-                saveToHistory(trimmed);
-                return;
-            } else {
-                const parent = resolveParentPath(name);
-                if (parent.parent) delete parent.parent.children[parent.filename];
-            }
-            saveFS();
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда cp
-        const cpMatch = trimmed.match(/^cp\s+(.+)$/);
-        if (cpMatch) {
-            const args = cpMatch[1].split(/\s+/);
-            if (args.length >= 2) {
-                const src = resolvePath(args[0]);
-                const dest = resolvePath(args[1]);
-                if (!src) {
-                    appendOutput('<span class="error">cp: cannot stat ' + escapeHtml(args[0]) + '\': No such file or directory</span>');
-                    saveToHistory(trimmed);
-                    return;
-                } else if (src.type === 'file') {
-                    const destParent = resolveParentPath(args[1]);
-                    if (!destParent.parent) {
-                        appendOutput('<span class="error">cp: cannot create regular file ' + escapeHtml(args[1]) + '\': No such file or directory</span>');
-                        saveToHistory(trimmed);
-                        return;
-                    } else {
-                        destParent.parent.children[destParent.filename] = { type: 'file', permissions: '644', owner: currentUser, content: src.content };
-                    }
-                } else if (src.type === 'dir') {
-                    appendOutput('<span class="error">cp: omitting directory ' + escapeHtml(args[0]) + '\'</span>');
-                }
-            }
-            saveFS();
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда mv
-        const mvMatch = trimmed.match(/^mv\s+(.+)$/);
-        if (mvMatch) {
-            const args = mvMatch[1].split(/\s+/);
-            if (args.length >= 2) {
-                const src = resolvePath(args[0]);
-                if (!src) {
-                    appendOutput('<span class="error">mv: cannot stat ' + escapeHtml(args[0]) + '\': No such file or directory</span>');
-                    saveToHistory(trimmed);
-                    return;
-                } else {
-                    const destParent = resolveParentPath(args[1]);
-                    if (!destParent.parent) {
-                        appendOutput('<span class="error">mv: cannot move to ' + escapeHtml(args[1]) + '\': No such file or directory</span>');
-                        saveToHistory(trimmed);
-                        return;
-                    } else {
-                        destParent.parent.children[destParent.filename] = src;
-                        const srcParent = resolveParentPath(args[0]);
-                        if (srcParent.parent) delete srcParent.parent.children[srcParent.filename];
-                    }
-                }
-            }
-            saveFS();
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда whoami
-        if (trimmed === 'whoami') {
-            appendOutput(currentUser);
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда hostname
-        if (trimmed === 'hostname') {
-            appendOutput(currentHost);
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда uname
-        if (trimmed === 'uname' || trimmed.startsWith('uname -')) {
-            appendOutput('Linux the Game 1.0 virtual x86_64 GNU/Linux');
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда echo
-        const echoMatch = trimmed.match(/^echo\s+(.+)$/);
-        if (echoMatch) {
-            let text = echoMatch[1];
-            if (text.startsWith('"') && text.endsWith('"')) text = text.slice(1, -1);
-            else if (text.startsWith("'") && text.endsWith("'")) text = text.slice(1, -1);
-            // Проверяем перенаправление: > file или >> file
-            const redirectMatch = text.match(/^(.+)\s*>>\s*(.+)$/);
-            const appendMatch = text.match(/^(.+)\s*>\s*(.+)$/);
-            if (redirectMatch) {
-                // append: echo "text" >> file
-                const content = redirectMatch[1];
-                const filename = redirectMatch[2].trim();
-                const parent = resolveParentPath(filename);
-                if (!parent.parent) {
-                    appendOutput('<span class="error">bash: ' + filename + ': No such file or directory</span>');
-                } else {
-                    const existing = parent.parent.children[parent.filename];
-                    if (existing && existing.type === 'dir') {
-                        appendOutput('<span class="error">bash: ' + filename + ': Is a directory</span>');
-                    } else {
-                        parent.parent.children[parent.filename] = {
-                            type: 'file',
-                            permissions: '644',
-                            owner: currentUser,
-                            content: (existing ? existing.content : '') + content + '\n'
-                        };
-                    }
-                }
-                saveFS();
-            } else if (appendMatch) {
-                // overwrite: echo "text" > file
-                const content = appendMatch[1];
-                const filename = appendMatch[2].trim();
-                const parent = resolveParentPath(filename);
-                if (!parent.parent) {
-                    appendOutput('<span class="error">bash: ' + filename + ': No such file or directory</span>');
-                } else {
-                    const existing = parent.parent.children[parent.filename];
-                    if (existing && existing.type === 'dir') {
-                        appendOutput('<span class="error">bash: ' + filename + ': Is a directory</span>');
-                    } else {
-                        parent.parent.children[parent.filename] = {
-                            type: 'file',
-                            permissions: '644',
-                            owner: currentUser,
-                            content: content + '\n'
-                        };
-                    }
-                }
-                saveFS();
-            } else {
-                appendOutput(escapeHtml(text));
-            }
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда date
-        if (trimmed === 'date') {
-            appendOutput(new Date().toString());
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда lsblk
-        if (trimmed === 'lsblk') {
-            appendOutput('NAME   SIZE  TYPE\nvda    10G   disk\n├─vda1  1G   part [boot]\n└─vda2  9G   part');
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда df
-        if (trimmed === 'df' || trimmed === 'df -h') {
-            appendOutput('Filesystem      Size  Used Avail Use% Mounted on\nvda2           9.0G  2.5G  6.0G  30% /');
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда free
-        if (trimmed === 'free' || trimmed === 'free -h') {
-            appendOutput('              total    used    free    shared  buff/cache   available\nMem:          2048MB   512MB   1024MB   64MB     512MB       1536MB\nSwap:         512MB    0MB     512MB');
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда ps
-        if (trimmed === 'ps' || trimmed === 'ps aux') {
-            appendOutput('PID   TTY    TIME    CMD\n1     ?      0:00    /sbin/init\n500     ?      0:01    /usr/lib/systemd/systemd-journald\n800     ?      0:00    /usr/sbin/sshd\n1200    pts/0  0:00    bash\n1500    pts/0  0:00    ps aux');
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда top (однократный вывод)
-        if (trimmed === 'top') {
-            appendOutput('PID USER      PR  NI  VIRT  RES  SHR S  %CPU %MEM    TIME+ COMMAND\n1200 user      20   0  4500 3200 2100 S   0.0  0.2   0:00.05 bash\n1501 user      20   0  1500 1000  800 R   0.0  0.1   0:00.01 top');
-            saveToHistory(trimmed);
-            return;
-        }
-        // Команда man — сохраняем с пустым выводом, fetchMan добавит вывод позже
-        let mMatch = trimmed.match(/^man\s+(.+)/);
-        if (mMatch) {
-            const cmdArg = 'man ' + mMatch[1].trim();
-            // Сохраняем команду с пустым выводом
-            history.push({ command: cmdArg, output: [] });
-            localStorage.setItem('history', JSON.stringify(history));
-            if (!renderManFromCache(mMatch[1].trim())) {
-                fetchMan(mMatch[1].trim());
-            }
-            return;
-        }
-        // Неизвестная команда
-        appendOutput('<span class="error">bash: ' + escapeHtml(trimmed.split(' ')[0]) + ': ' + i18n[currentLang].unknownCmd + '</span>');
-        appendOutput('<span class="info">' + i18n[currentLang].helpAvailable + '</span>');
     }
     // Сохранить команду в историю
     function saveToHistory(cmd) {
+        if (!cmd) return;
         const trimmed = cmd.trim();
         if (!trimmed) return;
         history.push({ command: trimmed, output: pendingOutput.slice() });
         pendingOutput = [];
         localStorage.setItem('history', JSON.stringify(history));
     }
-    // Добавить команду в историю (без вывода)
     function addToHistory(cmd) {
         const trimmed = cmd.trim();
         if (!trimmed) return;
@@ -785,8 +498,6 @@ $(function() {
         localStorage.setItem('history', JSON.stringify(history));
         saveToHistory(trimmed);
     }
-    // Показать справку (все команды)
-    // Find the path string for a resolved directory object
     function findPathForDir(dirObj) {
         function findInDir(obj, target, currentPath) {
             if (obj === target) return currentPath;
@@ -801,7 +512,7 @@ $(function() {
         }
         return findInDir(fs['/'], dirObj, '/') || '/home/user';
     }
-function showHelp() {
+    function showHelp() {
         if (commandsCache.length === 0) {
             appendOutput('<span class="warn">' + i18n[currentLang].noCommands + '</span>');
             return;
@@ -828,11 +539,9 @@ function showHelp() {
         html += '<span class="info">' + i18n[currentLang].manHint + '</span>';
         appendOutput(html);
     }
-    // Запрос man-страницы
     function fetchMan(cmdName) {
         const key = cmdName + '_' + currentLang;
         const encoded = encodeURIComponent(cmdName);
-        // Если есть в кэше — показываем из кэша
         if (manCache[key]) {
             appendOutput('<pre class="manpage">' + manCache[key] + '</pre>');
             return;
@@ -849,32 +558,25 @@ function showHelp() {
                 manCache[key] = html;
                 appendOutput('<pre class="manpage">' + html + '</pre>');
             }
-            // Добавляем вывод к последней записи в истории (команда man)
             if (history.length > 0) {
                 history[history.length - 1].output = pendingOutput.slice();
                 localStorage.setItem('history', JSON.stringify(history));
             }
         }).fail(function() {
             appendOutput('<span class="error">' + i18n[currentLang].manError + '</span>');
-            // Добавляем вывод к последней записи в истории
             if (history.length > 0) {
                 history[history.length - 1].output = pendingOutput.slice();
                 localStorage.setItem('history', JSON.stringify(history));
             }
         });
     }
-    // Скрыть подсказки
     function hideSuggestions() {
         suggestionsVisible = false;
         suggestionIndex = -1;
     }
-    // Показать подсказки (без выпадающего списка)
     function showSuggestions(matches) {
-        // Autocomplete without dropdown - only used for single-match auto-complete
     }
-    // Получить список файлов/каталогов из директории
     function getFSMatches(prefix) {
-        // Если prefix содержит '/' — разбиваем на директорию и префикс
         if (prefix.includes('/')) {
             const slashIdx = prefix.lastIndexOf('/');
             const dirPart = prefix.substring(0, slashIdx);
@@ -891,7 +593,6 @@ function showHelp() {
             }
             return matches;
         }
-        // Относительный путь от currentPath
         const dir = resolvePath(currentPath);
         if (!dir || dir.type !== 'dir') return [];
         const matches = [];
@@ -905,7 +606,6 @@ function showHelp() {
         }
         return matches;
     }
-    // Команды, для которых работает автодополнение путей из ФС
     const pathAutocompleteCommands = new Set([
         'ls', 'cat', 'echo', 'rm', 'cp', 'mv', 'touch', 'mkdir', 'rmdir',
         'cd', 'head', 'tail', 'grep', 'find', 'chmod', 'chown', 'chgrp',
@@ -914,24 +614,18 @@ function showHelp() {
         'curl', 'wget', 'tar', 'zip', 'unzip', 'ln', 'du', 'stat',
         'file', 'basename', 'dirname', 'readlink'
     ]);
-    // Автодополнение пути из файловой системы
     function autoCompletePath(inputVal) {
-        // Убираем trailing пробелы для корректного парсинга
         const trimmed = inputVal.replace(/\s+$/, '');
         const parts = trimmed.split(/\s+/);
         if (parts.length < 2) return null;
-        // Проверяем, что команда поддерживает автодополнение путей
         const cmdName = parts[0].toLowerCase();
         if (!pathAutocompleteCommands.has(cmdName)) return null;
-        // Берём последний аргумент — это путь
         let lastArg = parts[parts.length - 1];
         let prefix = '';
         let searchPath = currentPath;
-        // Проверяем, абсолютный ли путь
         if (lastArg.startsWith('/')) {
             const slashIdx = lastArg.lastIndexOf('/');
             if (slashIdx === 0) {
-                // Путь вида /ho — префикс это всё после первого /
                 prefix = lastArg.substring(1);
                 searchPath = '/';
             } else if (slashIdx > 0) {
@@ -952,34 +646,28 @@ function showHelp() {
                 searchPath = '/home/user';
             }
         } else {
-            // Относительный путь
             const slashIdx = lastArg.lastIndexOf('/');
             if (slashIdx >= 0) {
                 const dirPart = lastArg.substring(0, slashIdx + 1);
                 prefix = lastArg.substring(slashIdx + 1);
-                // Проверяем, существует ли путь как абсолютный (без ведущего /)
                 const absPath = '/' + lastArg.substring(0, slashIdx);
                 const absDir = resolvePath(absPath);
                 if (absDir && absDir.type === 'dir') {
                     searchPath = absPath;
                 } else {
-                    // Пробуем как относительный от currentPath
                     const relPath = currentPath + '/' + dirPart;
                     const relDir = resolvePath(relPath);
                     if (relDir && relDir.type === 'dir') {
                         searchPath = relPath;
                     }
-                    // Если ни один не найден — оставляем currentPath и ищем по prefix
                 }
             } else {
                 prefix = lastArg;
             }
         }
-        // Ищем совпадения в ФС
         const searchPrefix = (searchPath.endsWith('/') ? searchPath.slice(0, -1) : searchPath) + '/' + prefix;
         const matches = getFSMatches(searchPrefix);
         if (matches.length === 1) {
-            // Заменяем только последнюю часть пути (после последнего /)
             const lastSlashIdx = lastArg.lastIndexOf('/');
             const completedName = matches[0].name;
             if (lastSlashIdx >= 0) {
@@ -992,18 +680,15 @@ function showHelp() {
         }
         return null;
     }
-    // Отправить команду
     function submitCommand(cmd) {
         hideSuggestions();
         input.val('');
         updateCursorPosition();
         executeCommand(cmd);
     }
-    // Обновление позиции курсора при вводе
     input.on('input', function() {
         updateCursorPosition();
     });
-    // Обработка ввода
     input.on('keydown', function(e) {
         const val = input.val();
         if (e.key === 'Enter') {
@@ -1017,7 +702,6 @@ function showHelp() {
         if (e.key === 'Tab') {
             e.preventDefault();
             if (suggestionsVisible) {
-                // Выбираем следующую подсказку
                 const items = $('.suggestion-item');
                 if (items.length > 0) {
                     suggestionIndex = (suggestionIndex + 1) % items.length;
@@ -1029,14 +713,12 @@ function showHelp() {
                     }
                 }
             } else {
-                // Убираем trailing пробелы перед обработкой
                 const trimmed = val.replace(/\s+$/, '');
                 const pathResult = autoCompletePath(trimmed);
                 if (pathResult !== null) {
                     input.val(pathResult);
                     updateCursorPosition();
                 } else if (trimmed.length > 0) {
-                    // Автодополнение команд
                     const matches = commandsCache.filter(function(c) {
                         return c.name.toLowerCase().indexOf(trimmed) === 0;
                     });
@@ -1092,7 +774,8 @@ function showHelp() {
             return;
         }
     });
-    // Скрываем подсказки при клике вне
-    // Приветственное сообщение
     clearTerminal();
+    }
+
+    initWhenReady();
 });

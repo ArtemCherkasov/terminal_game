@@ -40,6 +40,7 @@
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"
             integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="
             crossorigin="anonymous"></script>
-    <script src="js/terminal.js"></script>
+    <script src="js/commands/index.js"></script>
+    <script src="js/terminal.js?v=15"></script>
 </body>
 </html>
