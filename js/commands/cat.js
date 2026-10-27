@@ -8,9 +8,9 @@ window.CmdCat = {
 
     // Check for append redirect first (>> before >)
     if (/\s*>>\s*/.test(args)) {
-      ctx._handleCatRedirect(ctx, args, 'append');
+      this._handleCatRedirect(ctx, args, 'append');
     } else if (/\s*>\s*/.test(args)) {
-      ctx._handleCatRedirect(ctx, args, 'overwrite');
+      this._handleCatRedirect(ctx, args, 'overwrite');
     } else {
       // Normal cat
       var files = args.split(/\s+/);

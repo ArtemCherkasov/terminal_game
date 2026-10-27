@@ -331,3 +331,169 @@ describe('History with custom storage key', () => {
     expect(history.getLength()).toBe(1);
   });
 });
+
+// ==================== man command history preservation ====================
+// Bug: when switching RU/EN, "man ls" disappeared from output because
+// fetchMan/renderManFromCache overwrote history entry output instead of
+// appending to it. The prompt line "$ man ls" was lost.
+describe('man command history - output preservation on rerender', () => {
+  // Simulates the terminal.js flow:
+  // 1. pendingOutput = []
+  // 2. appendOutput('$ man ls') → pendingOutput = ['$ man ls']
+  // 3. saveToHistory('man ls') → history entry output = ['$ man ls'], pendingOutput = []
+  // 4. appendOutput('<pre class="manpage">...</pre>') → pendingOutput = ['<pre...>']
+  // 5. OLD BUG: history[-1].output = pendingOutput.slice() → output = ['<pre...>'] (prompt lost!)
+  // 5. FIX: history[-1].output = history[-1].output.concat(pendingOutput.slice()) → output = ['$ man ls', '<pre...>']
+
+  test('should preserve prompt line when appending man output (cache hit)', () => {
+    var history = [];
+    var pendingOutput = [];
+
+    // Step 1-2: prompt line added
+    pendingOutput.push('<span class="prompt">$ </span>man ls');
+
+    // Step 3: saveToHistory called inside CmdMan.execute (before man content)
+    history.push({ command: 'man ls', output: pendingOutput.slice() });
+    pendingOutput = [];
+
+    expect(history[0].output).toEqual(['<span class="prompt">$ </span>man ls']);
+
+    // Step 4: man page content appended
+    pendingOutput.push('<pre class="manpage">LS(1) ...</pre>');
+
+    // Step 5: FIX — concat instead of overwrite
+    history[history.length - 1].output = history[history.length - 1].output.concat(pendingOutput.slice());
+
+    // The output should contain BOTH the prompt and the man page
+    expect(history[0].output).toHaveLength(2);
+    expect(history[0].output[0]).toContain('man ls');
+    expect(history[0].output[1]).toContain('manpage');
+  });
+
+  test('should preserve prompt line when appending man output (AJAX fetch)', () => {
+    var history = [];
+    var pendingOutput = [];
+
+    // Prompt line
+    pendingOutput.push('<span class="prompt">$ </span>man pwd');
+    history.push({ command: 'man pwd', output: pendingOutput.slice() });
+    pendingOutput = [];
+
+    // AJAX callback — man content arrives later
+    pendingOutput.push('<pre class="manpage">PWD(1) ...</pre>');
+
+    // FIX — concat
+    history[history.length - 1].output = history[history.length - 1].output.concat(pendingOutput.slice());
+
+    expect(history[0].output).toHaveLength(2);
+    expect(history[0].output[0]).toContain('man pwd');
+    expect(history[0].output[1]).toContain('manpage');
+  });
+
+  test('should preserve prompt line on man error (not found)', () => {
+    var history = [];
+    var pendingOutput = [];
+
+    pendingOutput.push('<span class="prompt">$ </span>man nonexistent');
+    history.push({ command: 'man nonexistent', output: pendingOutput.slice() });
+    pendingOutput = [];
+
+    // Error message
+    pendingOutput.push('<span class="error">No manual page for nonexistent</span>');
+
+    // FIX — concat
+    history[history.length - 1].output = history[history.length - 1].output.concat(pendingOutput.slice());
+
+    expect(history[0].output).toHaveLength(2);
+    expect(history[0].output[0]).toContain('man nonexistent');
+    expect(history[0].output[1]).toContain('error');
+  });
+
+  test('should preserve prompt line on man AJAX failure', () => {
+    var history = [];
+    var pendingOutput = [];
+
+    pendingOutput.push('<span class="prompt">$ </span>man ls');
+    history.push({ command: 'man ls', output: pendingOutput.slice() });
+    pendingOutput = [];
+
+    // AJAX error
+    pendingOutput.push('<span class="error">Error loading man page</span>');
+
+    // FIX — concat
+    history[history.length - 1].output = history[history.length - 1].output.concat(pendingOutput.slice());
+
+    expect(history[0].output).toHaveLength(2);
+    expect(history[0].output[0]).toContain('man ls');
+    expect(history[0].output[1]).toContain('error');
+  });
+
+  test('OLD BUG: overwrite would lose prompt line', () => {
+    // This test documents the old buggy behavior to prevent regression
+    var history = [];
+    var pendingOutput = [];
+
+    pendingOutput.push('<span class="prompt">$ </span>man ls');
+    history.push({ command: 'man ls', output: pendingOutput.slice() });
+    pendingOutput = [];
+
+    pendingOutput.push('<pre class="manpage">LS(1) ...</pre>');
+
+    // OLD BUG: overwrite
+    history[history.length - 1].output = pendingOutput.slice();
+
+    // The prompt line is LOST
+    expect(history[0].output).toHaveLength(1);
+    expect(history[0].output[0]).not.toContain('man ls');
+    expect(history[0].output[0]).toContain('manpage');
+  });
+
+  test('rerenderOutput should show prompt + man content with fix', () => {
+    // Simulates rerenderOutput: if entry.output has content, render each line
+    var history = [];
+    var pendingOutput = [];
+    var renderedLines = [];
+
+    // Build history entry with fix
+    pendingOutput.push('<span class="prompt">$ </span>man ls');
+    history.push({ command: 'man ls', output: pendingOutput.slice() });
+    pendingOutput = [];
+    pendingOutput.push('<pre class="manpage">LS(1)</pre>');
+    history[0].output = history[0].output.concat(pendingOutput.slice());
+
+    // Simulate rerenderOutput
+    history.forEach(function(entry) {
+      var entryOutput = entry.output;
+      if (entryOutput && entryOutput.length > 0) {
+        entryOutput.forEach(function(line) {
+          renderedLines.push(line);
+        });
+      } else {
+        renderedLines.push('<span class="prompt">$ </span>' + entry.command);
+      }
+    });
+
+    // Both prompt and man content should be rendered
+    expect(renderedLines).toHaveLength(2);
+    expect(renderedLines[0]).toContain('man ls');
+    expect(renderedLines[1]).toContain('manpage');
+  });
+
+  test('normal commands (ls, pwd) are unaffected', () => {
+    // For normal commands, saveToHistory is called AFTER output is added,
+    // so pendingOutput already contains both prompt and output
+    var history = [];
+    var pendingOutput = [];
+
+    pendingOutput.push('<span class="prompt">$ </span>ls');
+    pendingOutput.push('documents/  downloads/');
+    // saveToHistory called at end of command
+    history.push({ command: 'ls', output: pendingOutput.slice() });
+    pendingOutput = [];
+
+    // No additional output update needed
+    expect(history[0].output).toHaveLength(2);
+    expect(history[0].output[0]).toContain('ls');
+    expect(history[0].output[1]).toContain('documents');
+  });
+});

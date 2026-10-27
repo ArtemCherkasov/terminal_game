@@ -10,9 +10,9 @@ window.CmdEcho = {
 
     // Check for append redirect first (>> before >)
     if (/\s*>>\s*/.test(text)) {
-      ctx._handleEchoRedirect(text, 'append');
+      this._handleEchoRedirect(ctx, text, 'append');
     } else if (/\s*>\s*/.test(text)) {
-      ctx._handleEchoRedirect(text, 'overwrite');
+      this._handleEchoRedirect(ctx, text, 'overwrite');
     } else {
       ctx.appendOutput(ctx.escapeHtml(text));
     }

@@ -627,4 +627,32 @@ describe('echo command', () => {
     // echo without args should not match the regex, so nothing happens
     expect(ctx.getOutput()).toEqual([]);
   });
+
+  test('should redirect output to file with >', () => {
+    ctx._cmd = 'echo some text > text.txt';
+    ctx.clearOutput();
+    window.CmdEcho.execute(ctx);
+    var file = fs['/']['children']['home']['children']['user']['children']['text.txt'];
+    expect(file).toBeDefined();
+    expect(file.type).toBe('file');
+    expect(file.content).toContain('some text');
+  });
+
+  test('should append output to file with >>', () => {
+    // First write
+    ctx._cmd = 'echo first line > log.txt';
+    window.CmdEcho.execute(ctx);
+    // Second write (append)
+    ctx._cmd = 'echo second line >> log.txt';
+    window.CmdEcho.execute(ctx);
+    var file = fs['/']['children']['home']['children']['user']['children']['log.txt'];
+    expect(file).toBeDefined();
+    expect(file.content).toContain('first line');
+    expect(file.content).toContain('second line');
+  });
+
+  test('should not throw TypeError on redirect', () => {
+    ctx._cmd = 'echo hello > out.txt';
+    expect(() => window.CmdEcho.execute(ctx)).not.toThrow();
+  });
 });

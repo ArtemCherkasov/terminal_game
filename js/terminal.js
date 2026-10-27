@@ -310,7 +310,7 @@ $(function() {
         if (manCache[key]) {
             appendOutput('<pre class="manpage">' + manCache[key] + '</pre>');
             if (history.length > 0) {
-                history[history.length - 1].output = pendingOutput.slice();
+                history[history.length - 1].output = history[history.length - 1].output.concat(pendingOutput.slice());
                 localStorage.setItem('history', JSON.stringify(history));
             }
             return true;
@@ -564,13 +564,13 @@ $(function() {
                 appendOutput('<pre class="manpage">' + html + '</pre>');
             }
             if (history.length > 0) {
-                history[history.length - 1].output = pendingOutput.slice();
+                history[history.length - 1].output = history[history.length - 1].output.concat(pendingOutput.slice());
                 localStorage.setItem('history', JSON.stringify(history));
             }
         }).fail(function() {
             appendOutput('<span class="error">' + i18n[currentLang].manError + '</span>');
             if (history.length > 0) {
-                history[history.length - 1].output = pendingOutput.slice();
+                history[history.length - 1].output = history[history.length - 1].output.concat(pendingOutput.slice());
                 localStorage.setItem('history', JSON.stringify(history));
             }
         });
@@ -701,6 +701,7 @@ $(function() {
             hideSuggestions();
             executeCommand(val);
             input.val('');
+            historyIndex = history.length;
             updateCursorPosition();
             return;
         }
