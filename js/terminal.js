@@ -19,6 +19,7 @@ $(function() {
     const cursor = $('#cursor');
     const mirror = $('#mirror');
     const output = $('#output');
+    const inputWrapper = $('#input-wrapper');
     let history = [];
     let historyIndex = 0;
     let lastOutput = '';
@@ -47,19 +48,37 @@ $(function() {
     let fs = {};
     let defaultFs = null;
     let currentUserData = null;
+    // Восстановление сессии из localStorage
+    (function() {
+        var savedSession = localStorage.getItem('session');
+        if (savedSession) {
+            try {
+                var session = JSON.parse(savedSession);
+                currentUser = session.user || 'user';
+                currentPath = session.path || '/home/user';
+                currentHost = session.host || 'linux-game';
+                currentUserData = session.userData || null;
+            } catch(e) {}
+        }
+    })();
     let authState = 'idle';
     let authLogin = '';
     let authEmail = '';
     let authPass1 = '';
     let authPass2 = '';
-    // Позиционирование курсора через зеркальный span
+    // Позиционирование курсора через Range API (учитывает перенос строк)
     function updateCursorPosition() {
         const val = input.val();
         const selStart = input[0].selectionStart || val.length;
         mirror.text(val.substring(0, selStart));
         requestAnimationFrame(function() {
-            const mirrorWidth = mirror[0].offsetWidth;
-            cursor.css('left', mirrorWidth + 'px');
+            // Marker span approach — reliable across browsers
+            var marker = $('<span>').css({ display: 'inline-block', width: 0, height: 0, verticalAlign: 'top' });
+            mirror.append(marker);
+            var x = marker[0].offsetLeft;
+            var y = marker[0].offsetTop;
+            marker.remove();
+            cursor.css({ left: x + 'px', top: y + 'px' });
         });
     }
     // ========== Виртуальная файловая система ==========
@@ -692,6 +711,7 @@ $(function() {
         executeCommand(cmd);
     }
     input.on('input', function() {
+        hideSuggestions();
         updateCursorPosition();
     });
     input.on('keydown', function(e) {

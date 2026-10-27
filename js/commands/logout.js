@@ -8,6 +8,7 @@ window.CmdLogout = {
       ctx.setCurrentUser('user');
       ctx.setCurrentPath('/home/user');
       ctx.setCurrentHost('linux-game');
+      localStorage.removeItem('session');
       ctx.updatePrompt();
       if (ctx.defaultFs) {
         ctx.setFs(JSON.parse(JSON.stringify(ctx.defaultFs)));

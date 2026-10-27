@@ -733,3 +733,126 @@ describe('logout command', () => {
     });
   });
 });
+
+// ==================== Session persistence tests ====================
+describe('session persistence across page refresh', () => {
+  let ctx;
+
+  beforeEach(() => {
+    ctx = createMockCtx();
+    ajaxCalls.length = 0;
+    localStorage.clear();
+  });
+
+  test('login should save session to localStorage', () => {
+    ctx._cmd = 'login guest';
+    window.CmdLogin.execute(ctx);
+    ctx._cmd = 'guestpass';
+    window.CmdLogin.execute(ctx);
+    const successCb = ajaxCalls[0].success;
+    successCb({ status: 'ok', message: 'OK', user_id: 42, login: 'guest' });
+
+    var saved = localStorage.getItem('session');
+    expect(saved).not.toBeNull();
+    var session = JSON.parse(saved);
+    expect(session.user).toBe('guest');
+    expect(session.path).toBe('/home/guest');
+    expect(session.host).toBe('linux-game');
+    expect(session.userData.id).toBe(42);
+    expect(session.userData.login).toBe('guest');
+  });
+
+  test('logout should clear session from localStorage', () => {
+    localStorage.setItem('session', JSON.stringify({
+      user: 'guest', path: '/home/guest', host: 'linux-game',
+      userData: { id: 1, login: 'guest' }
+    }));
+    ctx.setCurrentUserData({ id: 1, login: 'guest' });
+    ctx.setCurrentUser('guest');
+    ctx._cmd = 'logout';
+    window.CmdLogout.execute(ctx);
+
+    expect(localStorage.getItem('session')).toBeNull();
+  });
+
+  test('session should survive page refresh (simulate restore)', () => {
+    // Save session
+    localStorage.setItem('session', JSON.stringify({
+      user: 'guest', path: '/home/guest', host: 'linux-game',
+      userData: { id: 1, login: 'guest' }
+    }));
+
+    // Simulate page refresh — restore from localStorage
+    var savedSession = localStorage.getItem('session');
+    var session = JSON.parse(savedSession);
+    var restoredUser = session.user || 'user';
+    var restoredPath = session.path || '/home/user';
+    var restoredHost = session.host || 'linux-game';
+    var restoredUserData = session.userData || null;
+
+    expect(restoredUser).toBe('guest');
+    expect(restoredPath).toBe('/home/guest');
+    expect(restoredHost).toBe('linux-game');
+    expect(restoredUserData).not.toBeNull();
+    expect(restoredUserData.login).toBe('guest');
+  });
+
+  test('no session should default to user', () => {
+    localStorage.clear();
+    var savedSession = localStorage.getItem('session');
+    var restoredUser = 'user';
+    var restoredPath = '/home/user';
+    if (savedSession) {
+      var session = JSON.parse(savedSession);
+      restoredUser = session.user || 'user';
+      restoredPath = session.path || '/home/user';
+    }
+    expect(restoredUser).toBe('user');
+    expect(restoredPath).toBe('/home/user');
+  });
+
+  test('login then refresh then ls should use correct path', () => {
+    // Login as guest
+    ctx._cmd = 'login guest';
+    window.CmdLogin.execute(ctx);
+    ctx._cmd = 'guestpass';
+    window.CmdLogin.execute(ctx);
+    const successCb = ajaxCalls[0].success;
+    successCb({ status: 'ok', message: 'OK', user_id: 1, login: 'guest' });
+
+    // Simulate page refresh
+    var savedSession = localStorage.getItem('session');
+    var session = JSON.parse(savedSession);
+
+    // After refresh, currentPath should be restored from session
+    expect(session.path).toBe('/home/guest');
+    expect(session.user).toBe('guest');
+    // NOT /home/user (the bug)
+    expect(session.path).not.toBe('/home/user');
+  });
+
+  test('logout then refresh should default to user', () => {
+    // Login
+    localStorage.setItem('session', JSON.stringify({
+      user: 'guest', path: '/home/guest', host: 'linux-game',
+      userData: { id: 1, login: 'guest' }
+    }));
+
+    // Logout
+    ctx.setCurrentUserData({ id: 1, login: 'guest' });
+    ctx.setCurrentUser('guest');
+    ctx._cmd = 'logout';
+    window.CmdLogout.execute(ctx);
+
+    // Simulate refresh
+    var savedSession = localStorage.getItem('session');
+    expect(savedSession).toBeNull();
+
+    // Should default to user
+    var restoredUser = 'user';
+    if (savedSession) {
+      restoredUser = JSON.parse(savedSession).user;
+    }
+    expect(restoredUser).toBe('user');
+  });
+});

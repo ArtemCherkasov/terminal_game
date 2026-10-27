@@ -21,6 +21,12 @@ window.CmdLogin = {
             ctx.setCurrentUser(response.login);
             ctx.setCurrentHost('linux-game');
             ctx.setCurrentPath('/home/' + response.login);
+            localStorage.setItem('session', JSON.stringify({
+              user: response.login,
+              path: '/home/' + response.login,
+              host: 'linux-game',
+              userData: { id: response.user_id, login: response.login }
+            }));
             if (typeof ctx.loadUserFilesystem === 'function') {
               ctx.loadUserFilesystem(response.user_id);
             }
