@@ -30,7 +30,7 @@ const createMockFs = () => ({
                   readme: { type: 'file', permissions: '644', owner: 'user', content: 'Hello World\n' }
                 }
               },
-              test.txt: { type: 'file', permissions: '644', owner: 'user', content: 'Test content\n' }
+              'test.txt': { type: 'file', permissions: '644', owner: 'user', content: 'Test content\n' }
             }
           }
         }
@@ -135,6 +135,18 @@ describe('Command Execution Flow', () => {
   let currentPath;
   let currentUser;
 
+  // Helper to resolve flat path keys to nested filesystem nodes
+  function getNode(path) {
+    if (!path || path === '/') return fs['/'];
+    var parts = path.split('/').filter(Boolean);
+    var current = fs['/'];
+    for (var p of parts) {
+      if (!current || !current.children || !current.children[p]) return undefined;
+      current = current.children[p];
+    }
+    return current;
+  }
+
   beforeEach(() => {
     fs = createMockFs();
     output = new OutputCollector();
@@ -145,7 +157,7 @@ describe('Command Execution Flow', () => {
   // ==================== ls Command Tests ====================
 
   test('ls should list directory contents', () => {
-    const dir = fs[currentPath];
+    const dir = getNode(currentPath);
     const children = Object.keys(dir.children);
     
     expect(children).toContain('documents');
@@ -153,12 +165,12 @@ describe('Command Execution Flow', () => {
   });
 
   test('ls should handle non-existent directory', () => {
-    const result = fs['/nonexistent'];
+    const result = getNode('/nonexistent');
     expect(result).toBeUndefined();
   });
 
   test('ls should show hidden files with -a flag', () => {
-    const homeUser = fs['/home/user'];
+    const homeUser = getNode('/home/user');
     // In real implementation, -a would show .bashrc
     expect(Object.keys(homeUser.children)).toContain('test.txt');
   });
@@ -166,7 +178,7 @@ describe('Command Execution Flow', () => {
   // ==================== cd Command Tests ====================
 
   test('cd should change directory', () => {
-    const target = fs['/home/user/documents'];
+    const target = getNode('/home/user/documents');
     expect(target.type).toBe('dir');
     
     // Simulate cd
@@ -175,12 +187,12 @@ describe('Command Execution Flow', () => {
   });
 
   test('cd to non-existent directory should fail', () => {
-    const target = fs['/nonexistent'];
+    const target = getNode('/nonexistent');
     expect(target).toBeUndefined();
   });
 
   test('cd to file should fail', () => {
-    const target = fs['/home/user/test.txt'];
+    const target = getNode('/home/user/test.txt');
     expect(target.type).toBe('file');
     expect(target.type).not.toBe('dir');
   });
@@ -190,24 +202,24 @@ describe('Command Execution Flow', () => {
     parts.pop();
     const parentPath = '/' + parts.join('/') || '/';
     
-    expect(parentPath).toBe('/home/user');
+    expect(parentPath).toBe('/home');
   });
 
   // ==================== cat Command Tests ====================
 
   test('cat should read file content', () => {
-    const file = fs['/home/user/documents/readme'];
+    const file = getNode('/home/user/documents/readme');
     expect(file.type).toBe('file');
     expect(file.content).toContain('Hello World');
   });
 
   test('cat should fail for non-existent file', () => {
-    const file = fs['/nonexistent/file.txt'];
+    const file = getNode('/nonexistent/file.txt');
     expect(file).toBeUndefined();
   });
 
   test('cat should fail for directory', () => {
-    const dir = fs['/home/user'];
+    const dir = getNode('/home/user');
     expect(dir.type).toBe('dir');
   });
 
@@ -221,13 +233,13 @@ describe('Command Execution Flow', () => {
       children: {}
     };
     
-    fs['/home/user'].children['newdir'] = newDir;
-    expect(fs['/home/user'].children['newdir']).toBeDefined();
-    expect(fs['/home/user'].children['newdir'].type).toBe('dir');
+    getNode('/home/user').children['newdir'] = newDir;
+    expect(getNode('/home/user').children['newdir']).toBeDefined();
+    expect(getNode('/home/user').children['newdir'].type).toBe('dir');
   });
 
   test('mkdir should fail for existing directory', () => {
-    const existing = fs['/home/user/documents'];
+    const existing = getNode('/home/user/documents');
     expect(existing).toBeDefined();
     expect(existing.type).toBe('dir');
   });
@@ -235,60 +247,60 @@ describe('Command Execution Flow', () => {
   // ==================== rm Command Tests ====================
 
   test('rm should delete file', () => {
-    fs['/home/user'].children['todelete.txt'] = {
+    getNode('/home/user').children['todelete.txt'] = {
       type: 'file',
       permissions: '644',
       owner: currentUser,
       content: 'Delete me'
     };
     
-    expect(fs['/home/user'].children['todelete.txt']).toBeDefined();
-    delete fs['/home/user'].children['todelete.txt'];
-    expect(fs['/home/user'].children['todelete.txt']).toBeUndefined();
+    expect(getNode('/home/user').children['todelete.txt']).toBeDefined();
+    delete getNode('/home/user').children['todelete.txt'];
+    expect(getNode('/home/user').children['todelete.txt']).toBeUndefined();
   });
 
   test('rm should fail for non-existent file', () => {
-    const result = fs['/home/user/nonexistent.txt'];
+    const result = getNode('/home/user/nonexistent.txt');
     expect(result).toBeUndefined();
   });
 
   // ==================== touch Command Tests ====================
 
   test('touch should create new file', () => {
-    fs['/home/user'].children['newfile.txt'] = {
+    getNode('/home/user').children['newfile.txt'] = {
       type: 'file',
       permissions: '644',
       owner: currentUser,
       content: ''
     };
     
-    expect(fs['/home/user'].children['newfile.txt']).toBeDefined();
-    expect(fs['/home/user'].children['newfile.txt'].type).toBe('file');
+    expect(getNode('/home/user').children['newfile.txt']).toBeDefined();
+    expect(getNode('/home/user').children['newfile.txt'].type).toBe('file');
   });
 
   // ==================== echo with redirect Tests ====================
 
   test('echo > should create file with content', () => {
-    fs['/home/user'].children['output.txt'] = {
+    getNode('/home/user').children['output.txt'] = {
       type: 'file',
       permissions: '644',
       owner: currentUser,
       content: 'Hello > redirect\n'
     };
     
-    const file = fs['/home/user'].children['output.txt'];
+    const file = getNode('/home/user').children['output.txt'];
     expect(file.content).toContain('Hello > redirect');
   });
 
   test('echo >> should append to file', () => {
-    fs['/home/user'].children['appended.txt'] = {
+    getNode('/home/user').children['appended.txt'] = {
       type: 'file',
       permissions: '644',
       owner: currentUser,
       content: 'First line\nSecond line\n'
     };
     
-    const file = fs['/home/user'].children['appended.txt'];
+    const file = getNode('/home/user').children['appended.txt'];
     expect(file.content).toContain('First line');
     expect(file.content).toContain('Second line');
   });
@@ -296,22 +308,22 @@ describe('Command Execution Flow', () => {
   // ==================== cp Command Tests ====================
 
   test('cp should copy file content', () => {
-    const source = fs['/home/user/test.txt'];
+    const source = getNode('/home/user/test.txt');
     
-    fs['/home/user'].children['copy.txt'] = {
+    getNode('/home/user').children['copy.txt'] = {
       type: 'file',
       permissions: '644',
       owner: currentUser,
       content: source.content
     };
     
-    expect(fs['/home/user'].children['copy.txt'].content).toBe(source.content);
+    expect(getNode('/home/user').children['copy.txt'].content).toBe(source.content);
   });
 
   // ==================== mv Command Tests ====================
 
   test('mv should move file', () => {
-    fs['/home/user'].children['moved.txt'] = {
+    getNode('/home/user').children['moved.txt'] = {
       type: 'file',
       permissions: '644',
       owner: currentUser,
@@ -319,11 +331,11 @@ describe('Command Execution Flow', () => {
     };
     
     // Move to new location
-    fs['/home/user/documents'].children['moved.txt'] = fs['/home/user'].children['moved.txt'];
-    delete fs['/home/user'].children['moved.txt'];
+    getNode('/home/user/documents').children['moved.txt'] = getNode('/home/user').children['moved.txt'];
+    delete getNode('/home/user').children['moved.txt'];
     
-    expect(fs['/home/user/documents'].children['moved.txt']).toBeDefined();
-    expect(fs['/home/user'].children['moved.txt']).toBeUndefined();
+    expect(getNode('/home/user/documents').children['moved.txt']).toBeDefined();
+    expect(getNode('/home/user').children['moved.txt']).toBeUndefined();
   });
 
   // ==================== pwd Command Tests ====================
@@ -388,7 +400,7 @@ describe('Command Execution Flow', () => {
     const json = JSON.stringify(fs);
     const parsed = JSON.parse(json);
     
-    const readme = parsed['/home/user/documents/readme'];
+    const readme = parsed['/']['children']['home']['children']['user']['children']['documents']['children']['readme'];
     expect(readme.type).toBe('file');
     expect(readme.content).toBe('Hello World\n');
   });
@@ -403,7 +415,7 @@ describe('Command Execution Flow', () => {
   test('should handle command with many arguments', () => {
     const result = parseCommand('find /home -name "*.txt" -type f');
     expect(result.command).toBe('find');
-    expect(result.args.length).toBe(4);
+    expect(result.args.length).toBe(5);
   });
 
   test('should handle command with special redirect characters', () => {

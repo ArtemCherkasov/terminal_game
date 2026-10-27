@@ -51,7 +51,9 @@ class LanguageManager {
 
   load() {
     try {
-      return localStorage.getItem(this.storageKey);
+      var lang = localStorage.getItem(this.storageKey);
+      if (lang && i18n[lang]) return lang;
+      return null;
     } catch (e) {
       return null;
     }
@@ -64,7 +66,7 @@ class LanguageManager {
   setLanguage(lang) {
     // No validation — matches actual terminal.js behavior
     this.currentLang = lang;
-    this.save(lang);
+    try { this.save(lang); } catch(e) {}
     return lang;
   }
 

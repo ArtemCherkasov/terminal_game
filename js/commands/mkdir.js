@@ -20,9 +20,15 @@ window.CmdMkdir = {
 
     if (createParents) {
       var parts = name.split('/').filter(Boolean);
-      var current = parent.parent;
+      var current = ctx.resolvePath('/');
       for (var i = 0; i < parts.length; i++) {
         var part = parts[i];
+        if (!current || current.type !== 'dir') {
+          ctx.appendOutput('<span class="error">mkdir: cannot create directory ' + ctx.escapeHtml(name) + '\': Not a directory</span>');
+          ctx.saveToHistory(trimmed);
+          return;
+        }
+        if (!current.children) current.children = {};
         if (!current.children[part]) {
           current.children[part] = { type: 'dir', permissions: '755', owner: ctx.currentUser, children: {} };
         }

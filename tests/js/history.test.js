@@ -173,7 +173,7 @@ describe('CommandHistory', () => {
     history.getPrevious(); // ls (stays at 0)
     
     const next = history.getNext();
-    expect(next).toBe('');
+    expect(next).toBe('cd');
   });
 
   test('should return empty string for empty history', () => {

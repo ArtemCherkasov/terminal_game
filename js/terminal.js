@@ -148,24 +148,33 @@ $(function() {
     }
     function resolvePath(path) {
         if (!fs['/']) return null;
+        if (!path) return null;
+        path = String(path).trim();
         if (path === '/') return fs['/'];
-        if (path === '.') return fs[currentPath] || fs['/'];
-        if (path === '..') {
-            const parts = currentPath.split('/').filter(Boolean);
-            parts.pop();
-            const parentPath = '/' + parts.join('/') || '/';
-            return fs[parentPath] || fs['/'];
-        }
-        if (path.startsWith('~/')) path = '/home/user/' + path.slice(2);
+        // Expand ~ to current user's home
+        if (path === '~' || path === '~/') path = '/home/' + currentUser;
+        if (path.startsWith('~/')) path = '/home/' + currentUser + '/' + path.slice(2);
         if (!path.startsWith('/')) path = currentPath + '/' + path;
         // Убрать trailing slash
         path = path.replace(/\/+$/, '');
         if (!path) return fs['/'];
-        const parts = path.split('/').filter(Boolean);
-        let current = fs['/'];
-        for (const part of parts) {
-            if (!current || current.type !== 'dir' || !current.children[part]) return null;
-            current = current.children[part];
+        // Normalize .. and . in path segments
+        var segs = path.split('/');
+        var resolved = [];
+        for (var i = 0; i < segs.length; i++) {
+            if (segs[i] === '..') {
+                if (resolved.length > 0) resolved.pop();
+            } else if (segs[i] !== '' && segs[i] !== '.') {
+                resolved.push(segs[i]);
+            }
+        }
+        path = '/' + resolved.join('/');
+        if (path === '') return fs['/'];
+        var parts = path.split('/').filter(Boolean);
+        var current = fs['/'];
+        for (var p of parts) {
+            if (!current || current.type !== 'dir' || !current.children[p]) return null;
+            current = current.children[p];
         }
         return current;
     }
@@ -375,10 +384,10 @@ $(function() {
         output.append(hintLine);
     }
     function updatePrompt() {
+        var displayPath = currentPath === '/home/' + currentUser ? '~' : currentPath;
         if (currentUser === 'user') {
             prompt.text('$');
         } else {
-            var displayPath = currentPath.startsWith('/') ? currentPath.slice(1) : currentPath;
             prompt.text(currentUser + '@' + currentHost + ':' + displayPath + '$');
         }
     }
@@ -412,36 +421,23 @@ $(function() {
             renderManFromCache: renderManFromCache,
             fetchMan: fetchMan,
             loadUserFilesystem: loadUserFilesystem,
-            currentPath: currentPath,
             setCurrentPath: function(p) {
                 var normalized = (p || '').replace(/^\/+|\/+$/g, '');
                 currentPath = normalized === '' ? '/' : '/' + normalized;
             },
-            currentUser: currentUser,
             setCurrentUser: function(u) { currentUser = u; },
-            currentHost: currentHost,
             setCurrentHost: function(h) { currentHost = h; },
-            currentLang: currentLang,
             i18n: i18n,
-            fs: fs,
             setFs: function(f) { fs = f; },
-            defaultFs: defaultFs,
-            currentUserData: currentUserData,
             setUserData: function(d) { currentUserData = d; },
-            history: history,
-            authState: authState,
             getAuthState: function() { return authState; },
             setAuthState: function(s) { authState = s; },
-            authLogin: authLogin,
             getAuthLogin: function() { return authLogin; },
             setAuthLogin: function(v) { authLogin = v; },
-            authEmail: authEmail,
             getAuthEmail: function() { return authEmail; },
             setAuthEmail: function(v) { authEmail = v; },
-            authPass1: authPass1,
             getAuthPass1: function() { return authPass1; },
             setAuthPass1: function(v) { authPass1 = v; },
-            authPass2: authPass2,
             getAuthPass2: function() { return authPass2; },
             setAuthPass2: function(v) { authPass2 = v; },
             updatePrompt: updatePrompt,
@@ -451,6 +447,15 @@ $(function() {
                 }
             }
         };
+        // Live property getters — not snapshots
+        Object.defineProperty(ctx, 'currentPath', { get: function() { return currentPath; }, enumerable: true });
+        Object.defineProperty(ctx, 'currentUser', { get: function() { return currentUser; }, enumerable: true });
+        Object.defineProperty(ctx, 'currentHost', { get: function() { return currentHost; }, enumerable: true });
+        Object.defineProperty(ctx, 'currentLang', { get: function() { return currentLang; }, enumerable: true });
+        Object.defineProperty(ctx, 'fs', { get: function() { return fs; }, enumerable: true });
+        Object.defineProperty(ctx, 'defaultFs', { get: function() { return defaultFs; }, enumerable: true });
+        Object.defineProperty(ctx, 'currentUserData', { get: function() { return currentUserData; }, set: function(d) { currentUserData = d; }, enumerable: true });
+        Object.defineProperty(ctx, 'history', { get: function() { return history; }, enumerable: true });
 
         // Handle useradd/adduser state machine
         var useraddHandler = (window.CmdUseradd && window.CmdUseradd.handleState) || (window.CmdAdduser && window.CmdAdduser.handleState);
@@ -510,7 +515,7 @@ $(function() {
             }
             return null;
         }
-        return findInDir(fs['/'], dirObj, '/') || '/home/user';
+        return findInDir(fs['/'], dirObj, '/') || currentPath;
     }
     function showHelp() {
         if (commandsCache.length === 0) {
@@ -574,14 +579,19 @@ $(function() {
         suggestionsVisible = false;
         suggestionIndex = -1;
     }
+    var currentSuggestions = [];
     function showSuggestions(matches) {
+        currentSuggestions = matches;
+        suggestionsVisible = matches.length > 0;
+        suggestionIndex = -1;
     }
     function getFSMatches(prefix) {
         if (prefix.includes('/')) {
             const slashIdx = prefix.lastIndexOf('/');
             const dirPart = prefix.substring(0, slashIdx);
             const searchPrefix = prefix.substring(slashIdx + 1);
-            const dir = resolvePath(dirPart);
+            // Empty dirPart means root
+            const dir = dirPart === '' ? resolvePath('/') : resolvePath(dirPart);
             if (!dir || dir.type !== 'dir') return [];
             const matches = [];
             for (const name of Object.keys(dir.children || {})) {
@@ -640,26 +650,21 @@ $(function() {
             if (slashIdx > 0) {
                 const dirPart = lastArg.substring(0, slashIdx);
                 prefix = lastArg.substring(slashIdx + 1);
-                searchPath = '/home/user/' + dirPart.slice(2);
+                searchPath = '/home/' + currentUser + '/' + dirPart.slice(2);
             } else {
                 prefix = lastArg.slice(2);
-                searchPath = '/home/user';
+                searchPath = '/home/' + currentUser;
             }
         } else {
             const slashIdx = lastArg.lastIndexOf('/');
             if (slashIdx >= 0) {
-                const dirPart = lastArg.substring(0, slashIdx + 1);
                 prefix = lastArg.substring(slashIdx + 1);
-                const absPath = '/' + lastArg.substring(0, slashIdx);
-                const absDir = resolvePath(absPath);
-                if (absDir && absDir.type === 'dir') {
-                    searchPath = absPath;
+                const dirPart = lastArg.substring(0, slashIdx);
+                const dir = resolvePath(dirPart);
+                if (dir && dir.type === 'dir') {
+                    searchPath = dirPart;
                 } else {
-                    const relPath = currentPath + '/' + dirPart;
-                    const relDir = resolvePath(relPath);
-                    if (relDir && relDir.type === 'dir') {
-                        searchPath = relPath;
-                    }
+                    return null;
                 }
             } else {
                 prefix = lastArg;
@@ -701,16 +706,12 @@ $(function() {
         }
         if (e.key === 'Tab') {
             e.preventDefault();
-            if (suggestionsVisible) {
-                const items = $('.suggestion-item');
-                if (items.length > 0) {
-                    suggestionIndex = (suggestionIndex + 1) % items.length;
-                    items.removeClass('active').eq(suggestionIndex).addClass('active');
-                    const selected = commandsCache[suggestionIndex];
-                    if (selected) {
-                        input.val(selected.name);
-                        updateCursorPosition();
-                    }
+            if (suggestionsVisible && currentSuggestions.length > 0) {
+                suggestionIndex = (suggestionIndex + 1) % currentSuggestions.length;
+                const selected = currentSuggestions[suggestionIndex];
+                if (selected) {
+                    input.val(selected.name + ' ');
+                    updateCursorPosition();
                 }
             } else {
                 const trimmed = val.replace(/\s+$/, '');
@@ -728,9 +729,11 @@ $(function() {
                             input.val(autoComplete);
                             updateCursorPosition();
                         } else {
-                            let matchNames = matches.map(m => m.name).join(', ');
+                            let matchNames = matches.map(m => m.name).join('  ');
                             appendOutput('<span class="info">' + matchNames + '</span>');
+                            showSuggestions(matches);
                         }
+                    } else {
                         hideSuggestions();
                     }
                 }

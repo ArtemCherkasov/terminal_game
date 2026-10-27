@@ -44,21 +44,27 @@ const createMockFs = () => ({
 // resolvePath implementation (from terminal.js)
 function resolvePath(path, fs, currentPath) {
   if (!fs['/']) return null;
+  if (!path) return null;
+  path = String(path).trim();
   if (path === '/') return fs['/'];
-  if (path === '.') return fs[currentPath];
-  if (path === '..') {
-    const parts = currentPath.split('/').filter(Boolean);
-    parts.pop();
-    const parentPath = '/' + parts.join('/') || '/';
-    return fs[parentPath] || fs['/'];
-  }
+  if (path === '~' || path === '~/') path = '/home/user';
   if (path.startsWith('~/')) path = '/home/user/' + path.slice(2);
   if (!path.startsWith('/')) path = currentPath + '/' + path;
-  const parts = path.split('/').filter(Boolean);
-  let current = fs['/'];
-  for (const part of parts) {
-    if (!current || current.type !== 'dir' || !current.children[part]) return null;
-    current = current.children[part];
+  path = path.replace(/\/+$/, '');
+  if (!path) return fs['/'];
+  var segs = path.split('/');
+  var resolved = [];
+  for (var i = 0; i < segs.length; i++) {
+    if (segs[i] === '..') { if (resolved.length > 0) resolved.pop(); }
+    else if (segs[i] !== '' && segs[i] !== '.') { resolved.push(segs[i]); }
+  }
+  path = '/' + resolved.join('/');
+  if (path === '') return fs['/'];
+  var parts = path.split('/').filter(Boolean);
+  var current = fs['/'];
+  for (var p of parts) {
+    if (!current || current.type !== 'dir' || !current.children[p]) return null;
+    current = current.children[p];
   }
   return current;
 }
@@ -86,13 +92,15 @@ describe('resolvePath', () => {
   test('should resolve to current directory with .', () => {
     const result = resolvePath('.', fs, currentPath);
     expect(result).not.toBeNull();
-    expect(result).toBe(fs[currentPath]);
+    const userDir = fs['/']['children']['home']['children']['user'];
+    expect(result).toBe(userDir);
   });
 
   test('should resolve parent directory with ..', () => {
     const result = resolvePath('..', fs, currentPath);
+    const homeDir = fs['/']['children']['home'];
     expect(result).not.toBeNull();
-    expect(result).toBe(fs['/home']);
+    expect(result).toBe(homeDir);
   });
 
   test('should resolve relative paths from currentPath', () => {
@@ -202,39 +210,42 @@ describe('Filesystem operations', () => {
   });
 
   test('should be able to add new directory', () => {
-    fs['/home/user'].children['newdir'] = {
+    const userDir = fs['/']['children']['home']['children']['user'];
+    userDir.children['newdir'] = {
       type: 'dir',
       permissions: '755',
       owner: 'user',
       children: []
     };
     
-    expect(fs['/home/user'].children['newdir']).toBeDefined();
-    expect(fs['/home/user'].children['newdir'].type).toBe('dir');
+    expect(userDir.children['newdir']).toBeDefined();
+    expect(userDir.children['newdir'].type).toBe('dir');
   });
 
   test('should be able to add new file', () => {
-    fs['/home/user'].children['test.txt'] = {
+    const userDir = fs['/']['children']['home']['children']['user'];
+    userDir.children['test.txt'] = {
       type: 'file',
       permissions: '644',
       owner: 'user',
       content: 'Test content'
     };
     
-    expect(fs['/home/user'].children['test.txt']).toBeDefined();
-    expect(fs['/home/user'].children['test.txt'].content).toBe('Test content');
+    expect(userDir.children['test.txt']).toBeDefined();
+    expect(userDir.children['test.txt'].content).toBe('Test content');
   });
 
   test('should be able to delete file', () => {
-    fs['/home/user'].children['test.txt'] = {
+    const userDir = fs['/']['children']['home']['children']['user'];
+    userDir.children['test.txt'] = {
       type: 'file',
       permissions: '644',
       owner: 'user',
       content: 'Test'
     };
     
-    delete fs['/home/user'].children['test.txt'];
-    expect(fs['/home/user'].children['test.txt']).toBeUndefined();
+    delete userDir.children['test.txt'];
+    expect(userDir.children['test.txt']).toBeUndefined();
   });
 
   test('should serialize filesystem to JSON', () => {

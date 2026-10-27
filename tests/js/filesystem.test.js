@@ -144,7 +144,7 @@ class FileSystemManager {
     }
     
     const filename = parts[parts.length - 1];
-    if (current.children[filename]) {
+    if (current.children[filename] && current.children[filename].type === 'file') {
       delete current.children[filename];
       this.save();
       return true;
@@ -153,6 +153,7 @@ class FileSystemManager {
   }
 
   getFile(path) {
+    if (!path || path.length === 0) return null;
     const parts = path.split('/').filter(Boolean);
     let current = this.fs['/'];
     
@@ -166,12 +167,12 @@ class FileSystemManager {
 
   directoryExists(path) {
     const node = this.getFile(path);
-    return node && node.type === 'dir';
+    return node !== null && node.type === 'dir';
   }
 
   fileExists(path) {
     const node = this.getFile(path);
-    return node && node.type === 'file';
+    return node !== null && node.type === 'file';
   }
 
   listDirectory(path) {
@@ -445,7 +446,7 @@ describe('FileSystemManager', () => {
     const json = JSON.stringify(fsManager.getFs());
     const parsed = JSON.parse(json);
     
-    const readme = parsed['/home/user/documents/readme.txt'];
+    const readme = parsed['/']['children']['home']['children']['user']['children']['documents']['children']['readme.txt'];
     expect(readme.content).toBe('Welcome to Linux the Game!\n');
   });
 });

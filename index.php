@@ -41,6 +41,6 @@
             integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="
             crossorigin="anonymous"></script>
     <script src="js/commands/index.js"></script>
-    <script src="js/terminal.js?v=15"></script>
+    <script src="js/terminal.js?v=16"></script>
 </body>
 </html>

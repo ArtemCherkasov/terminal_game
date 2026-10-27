@@ -46,7 +46,7 @@ describe('escapeHtml', () => {
   test('should prevent XSS injection', () => {
     expect(escapeHtml('<script>alert("xss")</script>')).toBe('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');
     expect(escapeHtml('<img onerror=alert(1)>')).toBe('&lt;img onerror=alert(1)&gt;');
-    expect(escapeHtml('<iframe src="evil.com"></iframe>')).toBe('&lt;iframe src="evil.com"&gt;&lt;/iframe&gt;');
+    expect(escapeHtml('<iframe src="evil.com"></iframe>')).toBe('&lt;iframe src=&quot;evil.com&quot;&gt;&lt;/iframe&gt;');
   });
 
   test('should handle mixed special characters', () => {

@@ -5,10 +5,12 @@ window.CmdCd = {
     if (!cdMatch) return;
 
     var target = cdMatch[2] || '~';
-    if (target === '' || target === '~') target = '/home/user';
+    // Trim whitespace
+    target = target.trim();
+    if (target === '' || target === '~') target = '/home/' + ctx.currentUser;
 
-    // Убрать trailing slash
-    target = target.replace(/\/+$/, '');
+    // Убрать trailing slash (но не сам '/')
+    if (target !== '/') target = target.replace(/\/+$/, '');
 
     // Handle cd /
     if (target === '/') {

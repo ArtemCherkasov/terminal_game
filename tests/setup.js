@@ -80,14 +80,15 @@ global.$ = global.jQuery = function(selector) {
   };
 };
 
-// Mock localStorage
+// Proper localStorage mock with real storage backing
+var _localStorageStore = {};
 const localStorageMock = {
-  getItem: jest.fn(),
-  setItem: jest.fn(),
-  removeItem: jest.fn(),
-  clear: jest.fn(),
-  length: 0,
-  key: jest.fn()
+  getItem: jest.fn(function(key) { return _localStorageStore[key] !== undefined ? _localStorageStore[key] : null; }),
+  setItem: jest.fn(function(key, value) { _localStorageStore[key] = String(value); }),
+  removeItem: jest.fn(function(key) { delete _localStorageStore[key]; }),
+  clear: jest.fn(function() { _localStorageStore = {}; }),
+  get length() { return Object.keys(_localStorageStore).length; },
+  key: jest.fn(function(index) { var keys = Object.keys(_localStorageStore); return keys[index] !== undefined ? keys[index] : null; })
 };
 Object.defineProperty(window, 'localStorage', {
   value: localStorageMock,
@@ -100,3 +101,14 @@ $.getJSON = jest.fn();
 
 // Mock console.error to suppress errors in tests
 console.error = jest.fn();
+
+// Helper to load command JS files that use `window.CmdXxx = {...}` pattern
+global.loadCommandFile = function(filename) {
+  var fs = require('fs');
+  var path = require('path');
+  var code = fs.readFileSync(
+    path.join(__dirname, '..', 'js', 'commands', filename),
+    'utf8'
+  );
+  eval(code);
+};
